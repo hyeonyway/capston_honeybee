@@ -62,8 +62,9 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	TraceKfreeSkb   *ebpf.ProgramSpec `ebpf:"trace_kfree_skb"`
-	TraceNetDevXmit *ebpf.ProgramSpec `ebpf:"trace_net_dev_xmit"`
+	CleanAllocSkb *ebpf.ProgramSpec `ebpf:"clean_alloc_skb"`
+	DetectSkbUaf  *ebpf.ProgramSpec `ebpf:"detect_skb_uaf"`
+	TraceKfreeSkb *ebpf.ProgramSpec `ebpf:"trace_kfree_skb"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
@@ -123,14 +124,16 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	TraceKfreeSkb   *ebpf.Program `ebpf:"trace_kfree_skb"`
-	TraceNetDevXmit *ebpf.Program `ebpf:"trace_net_dev_xmit"`
+	CleanAllocSkb *ebpf.Program `ebpf:"clean_alloc_skb"`
+	DetectSkbUaf  *ebpf.Program `ebpf:"detect_skb_uaf"`
+	TraceKfreeSkb *ebpf.Program `ebpf:"trace_kfree_skb"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.CleanAllocSkb,
+		p.DetectSkbUaf,
 		p.TraceKfreeSkb,
-		p.TraceNetDevXmit,
 	)
 }
 

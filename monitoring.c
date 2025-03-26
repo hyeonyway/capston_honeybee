@@ -91,15 +91,27 @@ int BPF_KPROBE(detect_skb_reuse, struct sk_buff *skb)
 }
 */
 
-SEC("tracepoint/net/net_dev_xmit") // 또는 netif_rx 사용 가능
-int trace_net_dev_xmit(struct trace_event_raw_net_dev_template *ctx) {
-    struct sk_buff *skb = (struct sk_buff *)ctx->skbaddr;
-    u64 ts = bpf_ktime_get_ns();
+SEC("kprobe/netif_receive_skb")
+int BPF_KPROBE(detect_skb_uaf, struct sk_buff *skb) {
     void *addr = (void *)skb;
+    u64 *ts = bpf_map_lookup_elem(&freed_skb_addrs, &addr);
 
-    if (addr) {
-        bpf_map_update_elem(&freed_skb_addrs, &addr, &ts, BPF_ANY);
+    if (ts) {
+        u64 now = bpf_ktime_get_ns();
+        if (now - *ts <= 5000000000) {
+            send_event(ctx, addr);
+            bpf_printk("[UAF] skb reused after free: %p\n", addr);
+        }
     }
+    return 0;
+}
+
+// skb 재할당 시 제거 (정상 재할당은 UAF 아님)
+SEC("kretprobe/__alloc_skb")
+int BPF_KRETPROBE(clean_alloc_skb, struct sk_buff *skb) {
+    void *addr = (void *)skb;
+    if (addr)
+        bpf_map_delete_elem(&freed_skb_addrs, &addr);
     return 0;
 }
 
