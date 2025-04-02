@@ -37,24 +37,20 @@ func main() {
 	}
 	defer objs.Close()
 
-	// Attach kprobe to kfree_skb
-	tp1, err := link.Tracepoint("skb", "kfree_skb", objs.TraceKfreeSkb, nil)
+	
+	// Attach tracepoint to kfree_skb
+	tp, err := link.Tracepoint("skb", "kfree_skb", objs.TraceKfreeSkb, nil)
 	if err != nil {
-		log.Fatalf("Tracepoint kfree_skb: %v", err)
+		log.Fatalf("Failed to attach kfree_skb: %v", err)
 	}
-	defer tp1.Close()
+	defer tp.Close()
 
-	kp, err := link.Kprobe("netif_receive_skb", objs.DetectSkbUaf, nil)
+	// Attach kretprobe to __alloc_skb
+	krp, err := link.Kretprobe("__alloc_skb", objs.CleanAllocSkb, nil)
 	if err != nil {
-		log.Fatalf("Kprobe netif_receive_skb: %v", err)
+		log.Fatalf("Failed to attach __alloc_skb: %v", err)
 	}
-	defer kp.Close()
-
-	kret, err := link.Kretprobe("__alloc_skb", objs.CleanAllocSkb, nil)
-	if err != nil {
-		log.Fatalf("Kretprobe __alloc_skb: %v", err)
-	}
-	defer kret.Close()
+	defer krp.Close()
 
 	fmt.Println("eBPF UAF detection running... Press Ctrl+C to stop.")
 

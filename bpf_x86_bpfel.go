@@ -63,7 +63,6 @@ type bpfSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
 	CleanAllocSkb *ebpf.ProgramSpec `ebpf:"clean_alloc_skb"`
-	DetectSkbUaf  *ebpf.ProgramSpec `ebpf:"detect_skb_uaf"`
 	TraceKfreeSkb *ebpf.ProgramSpec `ebpf:"trace_kfree_skb"`
 }
 
@@ -125,14 +124,12 @@ type bpfVariables struct {
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
 	CleanAllocSkb *ebpf.Program `ebpf:"clean_alloc_skb"`
-	DetectSkbUaf  *ebpf.Program `ebpf:"detect_skb_uaf"`
 	TraceKfreeSkb *ebpf.Program `ebpf:"trace_kfree_skb"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
 		p.CleanAllocSkb,
-		p.DetectSkbUaf,
 		p.TraceKfreeSkb,
 	)
 }

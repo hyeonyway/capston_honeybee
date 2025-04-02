@@ -39,8 +39,8 @@ static __always_inline void send_event(struct pt_regs *ctx, void *addr) {
 }
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 4096);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 32768);
     __type(key, void *);
     __type(value, u64);
 } freed_skb_addrs SEC(".maps");
@@ -59,54 +59,26 @@ int BPF_KPROBE(track_kfree_skb, struct sk_buff *skb)
 }
 */
 
+// skb free 추적
 SEC("tracepoint/skb/kfree_skb")
 int trace_kfree_skb(struct trace_event_raw_kfree_skb *ctx) {
-    struct sk_buff *skb = (struct sk_buff *)ctx->skbaddr;
-    u64 ts = bpf_ktime_get_ns();
-    void *addr = (void *)skb;
+    void *addr = (void *)ctx->skbaddr;
 
     if (addr) {
-        bpf_map_update_elem(&freed_skb_addrs, &addr, &ts, BPF_ANY);
-    }
-    return 0;
-}
-
-
-/*
-SEC("kprobe/__netif_receive_skb_core")
-int BPF_KPROBE(detect_skb_reuse, struct sk_buff *skb)
-{
-    void *addr = (void *)skb;
-    u64 *ts = bpf_map_lookup_elem(&freed_skb_addrs, &addr);
-
-    if (ts) {
-        u64 current_time = bpf_ktime_get_ns();
-        if (current_time - *ts > 5000000000) { // 5초 이상 지난 경우 제거
-            bpf_map_delete_elem(&freed_skb_addrs, &addr);
-        } else {
-            bpf_printk("Potential UAF detected! SKB reused without reallocation: %p\n", addr);
+        u64 *ts = bpf_map_lookup_elem(&freed_skb_addrs, &addr);
+        if (ts) {
+            // 이미 free된 주소 = UAF 의심
+            send_event(NULL, addr);
+            bpf_printk("[UAF] Double free or use-after-free detected at %p\n", addr);
         }
-    }
-    return 0;
-}
-*/
 
-SEC("kprobe/netif_receive_skb")
-int BPF_KPROBE(detect_skb_uaf, struct sk_buff *skb) {
-    void *addr = (void *)skb;
-    u64 *ts = bpf_map_lookup_elem(&freed_skb_addrs, &addr);
-
-    if (ts) {
         u64 now = bpf_ktime_get_ns();
-        if (now - *ts <= 5000000000) {
-            send_event(ctx, addr);
-            bpf_printk("[UAF] skb reused after free: %p\n", addr);
-        }
+        bpf_map_update_elem(&freed_skb_addrs, &addr, &now, BPF_ANY);
     }
     return 0;
 }
 
-// skb 재할당 시 제거 (정상 재할당은 UAF 아님)
+// skb 재할당되면 map에서 제거
 SEC("kretprobe/__alloc_skb")
 int BPF_KRETPROBE(clean_alloc_skb, struct sk_buff *skb) {
     void *addr = (void *)skb;
