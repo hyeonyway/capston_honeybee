@@ -1,27 +1,27 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"bytes"
+	"encoding/binary"
+	"errors"
 
 	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/cilium/ebpf/ringbuf"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64 -type event bpf monitoring.c -- -I../headers
 
-// eBPF 이벤트 데이터 구조체
-type uafEvent struct {
-	Timestamp uint64
-	Addr      uint64
+type bpfUafEvent struct {
+	SkbAddr uint64
+	Verdict int32
+	_       [4]byte // padding
 }
 
 func main() {
@@ -37,60 +37,56 @@ func main() {
 	}
 	defer objs.Close()
 
-	
-	// Attach tracepoint to kfree_skb
-	tp, err := link.Tracepoint("skb", "kfree_skb", objs.TraceKfreeSkb, nil)
+	kp1, err := link.Kprobe("nf_hook_slow", objs.SaveSkb, nil)
 	if err != nil {
-		log.Fatalf("Failed to attach kfree_skb: %v", err)
+		log.Fatalf("Kprobe nf_hok_slow: %v", err)
 	}
-	defer tp.Close()
+	defer kp1.Close()
 
-	// Attach kretprobe to __alloc_skb
-	krp, err := link.Kretprobe("__alloc_skb", objs.CleanAllocSkb, nil)
+
+	kp2, err := link.Kprobe("kfree_skb", objs.MarkFreedSkb, nil)
 	if err != nil {
-		log.Fatalf("Failed to attach __alloc_skb: %v", err)
+		log.Fatalf("Kprobe kfree_skb: %v", err)
 	}
-	defer krp.Close()
+	defer kp2.Close()
 
-	fmt.Println("eBPF UAF detection running... Press Ctrl+C to stop.")
+	kret, err := link.Kretprobe("nf_hook_slow", objs.CheckVerdict, nil)
+	if err != nil {
+		log.Fatalf("Kretprobe nf_hook_slow: %v", err)
+	}
+	defer kret.Close()
 
-	// Signal handling for graceful exit
-	stopper := make(chan os.Signal, 1)
-	signal.Notify(stopper, os.Interrupt, syscall.SIGTERM)
-
-	// Open a ringbuf reader from the userspace RINGBUF map
+	// ring buffer reader
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
-		log.Fatalf("Opening ringbuf reader: %s", err)
+		log.Fatalf("creating ringbuf reader: %s", err)
 	}
 	defer rd.Close()
 
-	// Graceful exit on signal
+	fmt.Println("eBPF UAF detection running... Press Ctrl+C to stop.")
+
+	// ring buffer consumer goroutine
 	go func() {
-		<-stopper
-		if err := rd.Close(); err != nil {
-			log.Fatalf("Closing ringbuf reader: %s", err)
+		var event bpfUafEvent
+		for {
+			record, err := rd.Read()
+			if err != nil {
+				if errors.Is(err, ringbuf.ErrClosed) {
+					log.Println("Received signal, exiting..")
+					return
+				}
+				log.Printf("Reading from reader: %s", err)
+				continue
+			}
+			err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event)
+			if(err == nil) {
+				fmt.Printf("[UAF DETECTED] skb=0x%x verdict=%d\n", event.SkbAddr, event.Verdict)
+			}
 		}
 	}()
 
-	log.Println("Waiting for events..")
-
-	// Event loop
-	var event uafEvent
-	for {
-		record, err := rd.Read()
-		if err != nil {
-			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Println("Received signal, exiting..")
-				return
-			}
-			log.Printf("Reading from reader: %s", err)
-			continue
-		}
-
-		err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event)
-		if err == nil {
-			log.Printf("[ALERT] UAF detected! SKB reused at address: %x\n", event.Addr)
-		}
-	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+	log.Println("Exiting...")
 }

@@ -13,11 +13,9 @@ import (
 )
 
 type bpfEvent struct {
-	Timestamp uint64
-	Pid       uint32
-	Comm      [16]int8
-	_         [4]byte
-	Addr      uint64
+	SkbAddr uint64
+	Verdict int32
+	_       [4]byte
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.
@@ -62,16 +60,18 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	CleanAllocSkb *ebpf.ProgramSpec `ebpf:"clean_alloc_skb"`
-	TraceKfreeSkb *ebpf.ProgramSpec `ebpf:"trace_kfree_skb"`
+	CheckVerdict *ebpf.ProgramSpec `ebpf:"check_verdict"`
+	MarkFreedSkb *ebpf.ProgramSpec `ebpf:"mark_freed_skb"`
+	SaveSkb      *ebpf.ProgramSpec `ebpf:"save_skb"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
-	Events        *ebpf.MapSpec `ebpf:"events"`
-	FreedSkbAddrs *ebpf.MapSpec `ebpf:"freed_skb_addrs"`
+	Events   *ebpf.MapSpec `ebpf:"events"`
+	FreedMap *ebpf.MapSpec `ebpf:"freed_map"`
+	SkbMap   *ebpf.MapSpec `ebpf:"skb_map"`
 }
 
 // bpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -101,14 +101,16 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
-	Events        *ebpf.Map `ebpf:"events"`
-	FreedSkbAddrs *ebpf.Map `ebpf:"freed_skb_addrs"`
+	Events   *ebpf.Map `ebpf:"events"`
+	FreedMap *ebpf.Map `ebpf:"freed_map"`
+	SkbMap   *ebpf.Map `ebpf:"skb_map"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
 		m.Events,
-		m.FreedSkbAddrs,
+		m.FreedMap,
+		m.SkbMap,
 	)
 }
 
@@ -123,14 +125,16 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	CleanAllocSkb *ebpf.Program `ebpf:"clean_alloc_skb"`
-	TraceKfreeSkb *ebpf.Program `ebpf:"trace_kfree_skb"`
+	CheckVerdict *ebpf.Program `ebpf:"check_verdict"`
+	MarkFreedSkb *ebpf.Program `ebpf:"mark_freed_skb"`
+	SaveSkb      *ebpf.Program `ebpf:"save_skb"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
-		p.CleanAllocSkb,
-		p.TraceKfreeSkb,
+		p.CheckVerdict,
+		p.MarkFreedSkb,
+		p.SaveSkb,
 	)
 }
 

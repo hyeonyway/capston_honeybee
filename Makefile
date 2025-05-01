@@ -10,7 +10,7 @@ generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate:
 	go generate ./...
-	clang-14 -O2 -target bpf -D__TARGET_ARCH_X86 -c monitoring.c -o monitoring.o
+	clang-14 -O2 -target bpf -g -D__TARGET_ARCH_X86 -c monitoring.c -o monitoring.o
 
 # Clean up everything generated automatically.
 clean:
